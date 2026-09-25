@@ -25,6 +25,10 @@
 #include "cross_log.h"
 #include "cross_util.h"
 
+#if defined(__APPLE__)
+#include <mach/mach_time.h>
+#endif
+
 #include "rtsp_client.h"
 #include "raop_client.h"
 #include "aes.h"
@@ -212,9 +216,43 @@ uint32_t raopcl_sample_rate(struct raopcl_s *p)
 }
 
 /*----------------------------------------------------------------------------*/
+#if defined(__APPLE__)
+/*
+ AirplayMultiStreamer fork: derive NTP from mach_absolute_time() instead of the
+ wall clock. The Core Audio HAL clock of the virtual device is mach-based too,
+ so capture and RAOP pacing then share one counter and cannot drift apart. The
+ wall clock is sampled once to give the NTP value a sane origin; receivers only
+ ever sync to *our* NTP through the timing port, so absolute accuracy is moot.
+*/
+static uint64_t _mach_origin_ticks;
+static uint64_t _wall_origin_us;
+static mach_timebase_info_data_t _mach_timebase;
+static pthread_once_t _mach_clock_once = PTHREAD_ONCE_INIT;
+
+static void _mach_clock_init(void)
+{
+	mach_timebase_info(&_mach_timebase);
+	_mach_origin_ticks = mach_absolute_time();
+	_wall_origin_us = gettime_us();
+}
+
+static uint64_t _mach_time_us(void)
+{
+	pthread_once(&_mach_clock_once, _mach_clock_init);
+	uint64_t elapsed = mach_absolute_time() - _mach_origin_ticks;
+	// ticks -> ns -> us, keeping the multiplication in 64 bits (numer/denom are small)
+	uint64_t ns = elapsed / _mach_timebase.denom * _mach_timebase.numer
+	            + (elapsed % _mach_timebase.denom) * _mach_timebase.numer / _mach_timebase.denom;
+	return _wall_origin_us + ns / 1000;
+}
+#define RAOPCL_TIME_US() _mach_time_us()
+#else
+#define RAOPCL_TIME_US() gettime_us()
+#endif
+
 uint64_t raopcl_get_ntp(struct ntp_s* ntp)
 {
-	uint64_t time = gettime_us();
+	uint64_t time = RAOPCL_TIME_US();
 	uint32_t seconds = time / (1000 * 1000);
 	uint32_t fraction = ((time % (1000 * 1000)) << 32) / (1000 * 1000);
 
@@ -690,7 +728,13 @@ struct raopcl_s *raopcl_create(struct in_addr host, uint16_t port_base, uint16_t
 	if (passwd) strncpy(raopcld->passwd, passwd, sizeof(raopcld->passwd) - 1);
 	if (secret) strncpy(raopcld->secret, secret, SECRET_SIZE);
 	if (et) strncpy(raopcld->et, et, 16);
-	raopcld->latency_frames = max(latency_frames, RAOP_LATENCY_MIN);
+	/*
+	 AirplayMultiStreamer fork: no floor on the requested latency. Upstream clamped
+	 to RAOP_LATENCY_MIN (11025) here, which made 500 ms (this + the receiver's own
+	 11025, see raopcl_latency) the smallest reachable end-to-end delay. The value
+	 is still raised to whatever the receiver reports in Audio-Latency at RECORD.
+	*/
+	raopcld->latency_frames = latency_frames > 0 ? latency_frames : 0;
 	raopcld->chunk_len = chunk_len;
 	strcpy(raopcld->DACP_id, DACP_id ? DACP_id : "");
 	strcpy(raopcld->active_remote, active_remote ? active_remote : "");
