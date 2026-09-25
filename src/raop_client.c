@@ -310,6 +310,14 @@ bool raopcl_is_sane(struct raopcl_s *p)
 }
 
 /*----------------------------------------------------------------------------*/
+// AirplayMultiStreamer fork: resend requests served since connect, for logging
+uint32_t raopcl_retransmits(struct raopcl_s *p)
+{
+	if (!p) return 0;
+	return p->retransmit;
+}
+
+/*----------------------------------------------------------------------------*/
 // AirplayMultiStreamer fork: why raopcl_is_sane() is false (bitmask), for logging
 int raopcl_sane_flags(struct raopcl_s *p)
 {
@@ -790,12 +798,21 @@ struct raopcl_s *raopcl_create(struct in_addr host, uint16_t port_base, uint16_t
 /*----------------------------------------------------------------------------*/
 static void _raopcl_terminate_rtp(struct raopcl_s *p)
 {
-	// Terminate RTP threads and close sockets
-	p->ctrl_running = false;
-	pthread_join(p->ctrl_thread, NULL);
+	/*
+	 AirplayMultiStreamer fork: only join threads that are actually running. Upstream
+	 joined unconditionally, so a disconnect followed by a repair joined the same
+	 (already joined) pthread_t twice; on macOS a stale id that now belongs to a live
+	 thread makes pthread_join block until that thread exits.
+	*/
+	if (p->ctrl_running) {
+		p->ctrl_running = false;
+		pthread_join(p->ctrl_thread, NULL);
+	}
 
-	p->time_running = false;
-	pthread_join(p->time_thread, NULL);
+	if (p->time_running) {
+		p->time_running = false;
+		pthread_join(p->time_thread, NULL);
+	}
 
 	if (p->rtp_ports.ctrl.fd != -1) closesocket(p->rtp_ports.ctrl.fd);
 	if (p->rtp_ports.time.fd != -1) closesocket(p->rtp_ports.time.fd);
