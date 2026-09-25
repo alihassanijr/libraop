@@ -310,6 +310,14 @@ bool raopcl_is_sane(struct raopcl_s *p)
 }
 
 /*----------------------------------------------------------------------------*/
+// AirplayMultiStreamer fork: errno of the last failed RTSP connect, 0 if it succeeded
+int raopcl_last_errno(struct raopcl_s *p)
+{
+	if (!p) return 0;
+	return rtspcl_last_errno(p->rtspcl);
+}
+
+/*----------------------------------------------------------------------------*/
 // AirplayMultiStreamer fork: resend requests served since connect, for logging
 uint32_t raopcl_retransmits(struct raopcl_s *p)
 {

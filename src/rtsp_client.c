@@ -48,6 +48,7 @@ typedef struct rtspcl_s {
 		char realm[16], nonce[256+1];
 		char ha1[32+1];
 	} digest;
+	int last_errno;		// AirplayMultiStreamer fork: errno of the last failed connect, 0 if it succeeded
 } rtspcl_t;
 
 extern log_level 	raop_loglevel;
@@ -76,6 +77,12 @@ struct rtspcl_s *rtspcl_create(char *useragent) {
 bool rtspcl_is_connected(struct rtspcl_s *p) {
 	if (p->fd == -1) return false;
 	return rtspcl_is_sane(p);
+}
+
+/*----------------------------------------------------------------------------*/
+// AirplayMultiStreamer fork: errno of the last failed TCP connect, 0 if it succeeded
+int rtspcl_last_errno(struct rtspcl_s *p) {
+	return p ? p->last_errno : 0;
 }
 
 
@@ -118,6 +125,7 @@ bool rtspcl_connect(struct rtspcl_s *p, struct in_addr local, struct in_addr hos
 	int rc = tcp_connect_timeout(p->fd, addr, rtspcl_connect_timeout_ms);
 	if (rc != 0) {
 		int err = rc > 0 ? rc : errno;
+		p->last_errno = err;
 		uint32_t elapsed = gettime_ms() - started;
 		if (elapsed + 50 >= (uint32_t) rtspcl_connect_timeout_ms) {
 			LOG_ERROR("[%p]: cannot connect to %s:%hu: no answer within %d ms", p, inet_ntoa(host), destport, rtspcl_connect_timeout_ms);
@@ -129,6 +137,7 @@ bool rtspcl_connect(struct rtspcl_s *p, struct in_addr local, struct in_addr hos
 		return false;
 	}
 	set_block(p->fd);
+	p->last_errno = 0;
 
 	struct sockaddr_in name;
 	socklen_t namelen = sizeof(name);
