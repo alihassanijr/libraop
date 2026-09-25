@@ -163,6 +163,7 @@ uint32_t 	raopcl_queued_frames(struct raopcl_s *p);
 bool 	raopcl_is_sane(struct raopcl_s *p);
 int  	raopcl_sane_flags(struct raopcl_s *p);   // AirplayMultiStreamer fork: 1 rtsp closed, 2 audio socket, 4 control, 8 timing
 uint32_t raopcl_retransmits(struct raopcl_s *p);   // AirplayMultiStreamer fork: resend requests served since connect
+extern int rtspcl_connect_timeout_ms;              // AirplayMultiStreamer fork: RTSP TCP connect bound (default 5000)
 bool 	raopcl_is_connected(struct raopcl_s *p);
 bool 	raopcl_is_playing(struct raopcl_s *p);
 bool 	raopcl_sanitize(struct raopcl_s *p);

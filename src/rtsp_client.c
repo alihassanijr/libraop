@@ -95,12 +95,40 @@ bool rtspcl_is_sane(struct rtspcl_s *p) {
 }
 
 /*----------------------------------------------------------------------------*/
+// AirplayMultiStreamer fork: bounded connect, see rtspcl_connect
+int rtspcl_connect_timeout_ms = 5000;
+
 bool rtspcl_connect(struct rtspcl_s *p, struct in_addr local, struct in_addr host, uint16_t destport, char *sid) {
 	if (!p) return false;
 
 	p->session = NULL;
-	if ((p->fd = open_tcp_socket(local, NULL, true)) == -1) return false;
-	if (!tcp_connect_by_host(p->fd, host, destport)) return false;
+	/*
+	 AirplayMultiStreamer fork: crosstools' tcp_connect() has its success test inverted (a
+	 failed connect() returns true, a successful one sleeps 100 ms and reconnects), so a
+	 refusing receiver surfaced later as "couldn't write request", and an unanswered SYN
+	 blocked for the OS timeout. Connect non-blocking with a bounded wait instead.
+	*/
+	if ((p->fd = open_tcp_socket(local, NULL, false)) == -1) return false;
+	struct sockaddr_in addr;
+	memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_addr = host;
+	addr.sin_port = htons(destport);
+	uint32_t started = gettime_ms();
+	int rc = tcp_connect_timeout(p->fd, addr, rtspcl_connect_timeout_ms);
+	if (rc != 0) {
+		int err = rc > 0 ? rc : errno;
+		uint32_t elapsed = gettime_ms() - started;
+		if (elapsed + 50 >= (uint32_t) rtspcl_connect_timeout_ms) {
+			LOG_ERROR("[%p]: cannot connect to %s:%hu: no answer within %d ms", p, inet_ntoa(host), destport, rtspcl_connect_timeout_ms);
+		} else {
+			LOG_ERROR("[%p]: cannot connect to %s:%hu: %s (%d)", p, inet_ntoa(host), destport, strerror(err), err);
+		}
+		closesocket(p->fd);
+		p->fd = -1;
+		return false;
+	}
+	set_block(p->fd);
 
 	struct sockaddr_in name;
 	socklen_t namelen = sizeof(name);
