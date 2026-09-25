@@ -310,6 +310,19 @@ bool raopcl_is_sane(struct raopcl_s *p)
 }
 
 /*----------------------------------------------------------------------------*/
+// AirplayMultiStreamer fork: why raopcl_is_sane() is false (bitmask), for logging
+int raopcl_sane_flags(struct raopcl_s *p)
+{
+	int flags = 0;
+	if (!p) return 0;
+	if (!rtspcl_is_sane(p->rtspcl)) flags |= 1;
+	if ((p->sane.audio.send + p->sane.audio.avail*5 + p->sane.audio.select*50) >= 500) flags |= 2;
+	if (p->sane.ctrl > 2) flags |= 4;
+	if (p->sane.time > 2) flags |= 8;
+	return flags;
+}
+
+/*----------------------------------------------------------------------------*/
 bool raopcl_is_playing(struct raopcl_s *p)
 {
 	uint64_t now_ts = NTP2TS(raopcl_get_ntp(NULL), p->sample_rate);
