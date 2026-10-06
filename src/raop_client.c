@@ -246,6 +246,35 @@ static uint64_t _mach_time_us(void)
 	return _wall_origin_us + ns / 1000;
 }
 #define RAOPCL_TIME_US() _mach_time_us()
+#elif defined(__linux__)
+/*
+ AirplayMultiStreamer fork, Linux: the same on CLOCK_MONOTONIC, the clock PipeWire's
+ graph runs on, so capture and RAOP pacing share one counter there too and a step
+ of the wall clock (NTP) cannot jump the stream. Wall-clock origin as above.
+*/
+static uint64_t _mono_origin_us;
+static uint64_t _wall_origin_us;
+static pthread_once_t _mono_clock_once = PTHREAD_ONCE_INIT;
+
+static uint64_t _mono_now_us(void)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)ts.tv_nsec / 1000;
+}
+
+static void _mono_clock_init(void)
+{
+	_mono_origin_us = _mono_now_us();
+	_wall_origin_us = gettime_us();
+}
+
+static uint64_t _mono_time_us(void)
+{
+	pthread_once(&_mono_clock_once, _mono_clock_init);
+	return _wall_origin_us + (_mono_now_us() - _mono_origin_us);
+}
+#define RAOPCL_TIME_US() _mono_time_us()
 #else
 #define RAOPCL_TIME_US() gettime_us()
 #endif
